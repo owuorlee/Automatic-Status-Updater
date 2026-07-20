@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.env.local
+# Baileys auth state (SECRET — never commit; contains WhatsApp session creds)
+.auth/
+*.log

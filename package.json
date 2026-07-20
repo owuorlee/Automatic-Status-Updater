@@ -1,0 +1,25 @@
+{
+  "name": "wa-status-poster",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "description": "Automated WhatsApp Status poster for SMBs (Baileys). Phase 1 = risky-primitive proof.",
+  "scripts": {
+    "phase1": "tsx src/phase1/link-and-post.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc13",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/qrcode-terminal": "^0.12.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

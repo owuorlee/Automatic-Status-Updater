@@ -1,0 +1,201 @@
+// Data model (requirement §8). Every row is tenant-scoped by `businessId`.
+// Secrets (WhatsApp creds/keys, proxy credentials) are stored ENCRYPTED at the
+// app layer (AES-256-GCM) — the Bytes columns hold ciphertext, never plaintext.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: the connection URL lives in prisma.config.ts (for Migrate) and a
+// driver adapter passed to PrismaClient (at runtime), not here.
+datasource db {
+  provider = "postgresql"
+}
+
+enum RiskTier {
+  conservative
+  standard
+}
+
+enum ConnectionState {
+  disconnected
+  connecting
+  qr_pending
+  connected
+  logged_out
+}
+
+enum ProxyKind {
+  mobile
+  residential
+  datacenter
+}
+
+enum PostStatus {
+  queued
+  processing
+  posted
+  failed
+  skipped
+  canceled
+}
+
+enum CaptionLanguage {
+  english
+  swahili
+  sheng
+  mixed
+}
+
+/// A business = an isolated tenant.
+model Business {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  timezone     String   @default("Africa/Nairobi")
+  riskTier     RiskTier @default(conservative)
+  /// Global per-client kill switch, honoured immediately by the workers.
+  paused       Boolean  @default(false)
+  plan         String   @default("pilot")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions  WhatsappSession[]
+  products  Product[]
+  templates Template[]
+  posts     ScheduledPost[]
+}
+
+/// One WhatsApp connection per business. Encrypted auth survives restarts.
+model WhatsappSession {
+  id      String @id @default(cuid())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+
+  phoneJid        String?
+  connectionState ConnectionState @default(disconnected)
+
+  /// Encrypted Baileys creds blob (the `creds` half of the auth state).
+  encCreds Bytes?
+  /// Stable companion device fingerprint, persisted so reconnects don't churn it.
+  browserFingerprint String?
+
+  /// Warm-up + health tracking (drives the risk engine).
+  connectedAt       DateTime?
+  warmupStartedAt   DateTime?
+  lastSeenAt        DateTime?
+  lastDisconnectCode Int?
+  forcedDisconnects  Int      @default(0)
+
+  proxy   Proxy?  @relation(fields: [proxyId], references: [id])
+  proxyId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  signalKeys SignalKey[]
+  posts      ScheduledPost[]
+
+  @@index([businessId])
+  @@index([connectionState])
+}
+
+/// Baileys signal key store, one row per key (written frequently — indexed for
+/// fast upsert/lookup). encValue holds AES-GCM ciphertext.
+model SignalKey {
+  id        String @id @default(cuid())
+  session   WhatsappSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId String
+  category  String
+  keyId     String
+  encValue  Bytes
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, category, keyId])
+  @@index([sessionId])
+}
+
+/// Per-session network egress (DECISIONS §D2). Credentials encrypted at rest.
+model Proxy {
+  id          String    @id @default(cuid())
+  label       String
+  kind        ProxyKind @default(residential)
+  host        String
+  port        Int
+  geo         String    @default("KE")
+  encUsername Bytes?
+  encPassword Bytes?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  session WhatsappSession?
+}
+
+model Product {
+  id          String  @id @default(cuid())
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId  String
+  name        String
+  description String?
+  priceText   String
+  category    String?
+  /// Object-storage key for the source photo (not the bytes).
+  imageKey    String?
+  active      Boolean @default(true)
+  /// Per-product override: never post this one.
+  doNotPost   Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  posts ScheduledPost[]
+
+  @@index([businessId])
+}
+
+model Template {
+  id             String          @id @default(cuid())
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId     String
+  name           String          @default("Default")
+  accentColor    String          @default("#128C7E")
+  onAccentColor  String          @default("#FFFFFF")
+  logoKey        String?
+  captionTone    String          @default("friendly")
+  captionLanguage CaptionLanguage @default(mixed)
+  emojiDensity   Int             @default(2)
+  includePrice   Boolean         @default(true)
+  includeCta     Boolean         @default(true)
+  isDefault      Boolean         @default(true)
+
+  @@index([businessId])
+}
+
+/// Unified queue + history record. A row starts `queued` and transitions to a
+/// terminal status; the same table is the upcoming queue and the post log.
+model ScheduledPost {
+  id         String @id @default(cuid())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessId String
+  product    Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId  String?
+  session    WhatsappSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  sessionId  String?
+
+  scheduledAt DateTime
+  status      PostStatus @default(queued)
+  /// BullMQ job id, so the durable queue and the DB stay reconcilable.
+  jobId       String?
+  /// Caption is pre-generated ahead of time so a live API blip can't stall it.
+  caption     String?
+  renderedKey String?
+  attempt     Int      @default(0)
+  error       String?
+
+  createdAt DateTime  @default(now())
+  postedAt  DateTime?
+
+  @@index([businessId, scheduledAt])
+  @@index([status])
+  @@index([sessionId])
+}

@@ -14,7 +14,9 @@
     "test:media": "tsx src/media/selftest.ts",
     "test:caption": "tsx src/caption/selftest.ts",
     "test:auth": "tsx src/wa/auth/selftest.ts",
-    "test": "npm run typecheck && npm run test:risk && npm run test:media && npm run test:caption && npm run test:auth",
+    "test:transport": "tsx src/wa/transport/selftest.ts",
+    "test:session": "tsx src/wa/session/selftest.ts",
+    "test": "npm run typecheck && npm run test:risk && npm run test:media && npm run test:caption && npm run test:auth && npm run test:transport && npm run test:session",
     "gen:key": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
     "prisma:validate": "prisma validate",
     "db:generate": "prisma generate"
@@ -23,10 +25,12 @@
     "@anthropic-ai/sdk": "^0.114.0",
     "@prisma/client": "^7.9.0",
     "@whiskeysockets/baileys": "7.0.0-rc13",
+    "https-proxy-agent": "^9.1.0",
     "pino": "^9.5.0",
     "prisma": "^7.9.0",
     "qrcode-terminal": "^0.12.0",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "socks-proxy-agent": "^10.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
